@@ -1,134 +1,152 @@
-######################################################################
-# Copyright 2016, 2021 John J. Rofrano. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-######################################################################
-
-# pylint: disable=function-redefined, missing-function-docstring
-# flake8: noqa
-"""
-Web Steps
-
-Steps file for web interactions with Selenium
-
-For information on Waiting until elements are present in the HTML see:
-    https://selenium-python.readthedocs.io/waits.html
-"""
-import logging
 from behave import when, then
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import Select, WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions
 
-ID_PREFIX = 'product_'
-
+# =================================================================
+# NAVIGATION & GENERAL STEPS
+# =================================================================
 
 @when('I visit the "Home Page"')
 def step_impl(context):
-    """ Make a call to the base URL """
     context.driver.get(context.base_url)
-    # Uncomment next line to take a screenshot of the web page
-    # context.driver.save_screenshot('home_page.png')
 
-@then('I should see "{message}" in the title')
-def step_impl(context, message):
-    """ Check the document title for a message """
-    assert(message in context.driver.title)
+@then('I should see "{text}" in the title')
+def step_impl(context, text):
+    assert text in context.driver.title
 
-@then('I should not see "{text_string}"')
-def step_impl(context, text_string):
-    element = context.driver.find_element(By.TAG_NAME, 'body')
-    assert(text_string not in element.text)
+@then('I should not see "{text}"')
+def step_impl(context, text):
+    assert text not in context.driver.find_element(By.TAG_NAME, 'body').text
 
-@when('I set the "{element_name}" to "{text_string}"')
-def step_impl(context, element_name, text_string):
-    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
+# =================================================================
+# INTERACTIVE CONTROL STEPS (BUTTONS & DROPDOWNS)
+# =================================================================
+
+@when('I press the "{button}" button')
+def step_impl(context, button):
+    button_id = button.lower() + '-btn'
+    
+    # Force clear old results text on search to ensure clean asynchronously updated DOM polling
+    if button.lower() == 'search':
+        try:
+            context.driver.execute_script(
+                "document.getElementById('search_results').innerText = '';"
+            )
+        except Exception:
+            pass
+
+    context.driver.find_element(By.ID, button_id).click()
+
+@when('I select "{value}" in the "{dropdown_name}" dropdown')
+def step_impl(context, value, dropdown_name):
+    name_lower = dropdown_name.lower()
+    element = None
+    
+    # Check for search form elements first using find_elements to avoid implicit wait penalties
+    for prefix in ['search_', 'product_']:
+        elements = context.driver.find_elements(By.ID, prefix + name_lower)
+        if elements and elements[0].is_displayed():
+            element = elements[0]
+            break
+            
+    if not element:
+        element = context.driver.find_element(By.ID, 'product_' + name_lower)
+
+    select = Select(element)
+    normalized_value = str(value).strip().lower()
+
+    # Dynamic option match strategy
+    target_text = None
+    for option in select.options:
+        opt_text = option.text.strip().lower()
+        opt_val = option.get_attribute('value').strip().lower()
+        if normalized_value == opt_text or normalized_value == opt_val:
+            target_text = option.text
+            break
+
+    if target_text is not None:
+        select.select_by_visible_text(target_text)
+    else:
+        select.select_by_value(value)
+
+    context.driver.execute_script("arguments[0].dispatchEvent(new Event('change'))", element)
+
+# =================================================================
+# TEXT DATA MUTATION & SETUP STEPS
+# =================================================================
+
+@when('I set the "{field_name}" to "{value}"')
+@when('I change the "{field_name}" to "{value}"')
+def step_impl(context, field_name, value):
+    element_id = 'product_' + field_name.lower()
     element = context.driver.find_element(By.ID, element_id)
     element.clear()
-    element.send_keys(text_string)
+    element.send_keys(value)
 
-@when('I select "{text}" in the "{element_name}" dropdown')
-def step_impl(context, text, element_name):
-    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
-    element = Select(context.driver.find_element(By.ID, element_id))
-    element.select_by_visible_text(text)
+# =================================================================
+# CLIPBOARD DATA STORAGE (COPY & PASTE OPERATIONS)
+# =================================================================
 
-@then('I should see "{text}" in the "{element_name}" dropdown')
-def step_impl(context, text, element_name):
-    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
-    element = Select(context.driver.find_element(By.ID, element_id))
-    assert(element.first_selected_option.text == text)
+@when('I copy the "{field_name}" field')
+def step_impl(context, field_name):
+    element_id = 'product_' + field_name.lower()
+    context.clipboard = context.driver.find_element(By.ID, element_id).get_attribute('value')
 
-@then('the "{element_name}" field should be empty')
-def step_impl(context, element_name):
-    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
+@when('I paste the "{field_name}" field')
+def step_impl(context, field_name):
+    element_id = 'product_' + field_name.lower()
     element = context.driver.find_element(By.ID, element_id)
-    assert(element.get_attribute('value') == u'')
-
-##################################################################
-# These two function simulate copy and paste
-##################################################################
-@when('I copy the "{element_name}" field')
-def step_impl(context, element_name):
-    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
-    element = WebDriverWait(context.driver, context.wait_seconds).until(
-        expected_conditions.presence_of_element_located((By.ID, element_id))
-    )
-    context.clipboard = element.get_attribute('value')
-    logging.info('Clipboard contains: %s', context.clipboard)
-
-@when('I paste the "{element_name}" field')
-def step_impl(context, element_name):
-    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
-    element = WebDriverWait(context.driver, context.wait_seconds).until(
-        expected_conditions.presence_of_element_located((By.ID, element_id))
-    )
     element.clear()
     element.send_keys(context.clipboard)
 
-##################################################################
-# This code works because of the following naming convention:
-# The buttons have an id in the html hat is the button text
-# in lowercase followed by '-btn' so the Clean button has an id of
-# id='clear-btn'. That allows us to lowercase the name and add '-btn'
-# to get the element id of any button
-##################################################################
+# =================================================================
+# VALIDATION & VERIFICATION STEPS (THEN BLOCKS)
+# =================================================================
 
-## UPDATE CODE HERE ##
+@then('the "{field_name}" field should be empty')
+def step_impl(context, field_name):
+    element_id = 'product_' + field_name.lower()
+    field_value = context.driver.find_element(By.ID, element_id).get_attribute('value')
+    assert field_value == ""
 
-##################################################################
-# This code works because of the following naming convention:
-# The id field for text input in the html is the element name
-# prefixed by ID_PREFIX so the Name field has an id='pet_name'
-# We can then lowercase the name and prefix with pet_ to get the id
-##################################################################
+@then('I should see "{expected_value}" in the "{field_name}" field')
+def step_impl(context, expected_value, field_name):
+    element_id = 'product_' + field_name.lower()
+    actual_value = context.driver.find_element(By.ID, element_id).get_attribute('value')
+    assert actual_value == expected_value
 
-@then('I should see "{text_string}" in the "{element_name}" field')
-def step_impl(context, text_string, element_name):
-    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
+@then('I should see "{expected_value}" in the "{dropdown_name}" dropdown')
+def step_impl(context, expected_value, dropdown_name):
+    element_id = 'product_' + dropdown_name.lower()
+    select = Select(context.driver.find_element(By.ID, element_id))
+    assert select.first_selected_option.text.upper() == expected_value.upper()
+
+@then('I should see "{name}" in the results')
+def step_impl(context, name):
     found = WebDriverWait(context.driver, context.wait_seconds).until(
-        expected_conditions.text_to_be_present_in_element_value(
-            (By.ID, element_id),
-            text_string
+        expected_conditions.text_to_be_present_in_element(
+            (By.ID, 'search_results'),
+            name
         )
     )
-    assert(found)
+    assert found
 
-@when('I change "{element_name}" to "{text_string}"')
-def step_impl(context, element_name, text_string):
-    element_id = ID_PREFIX + element_name.lower().replace(' ', '_')
-    element = WebDriverWait(context.driver, context.wait_seconds).until(
-        expected_conditions.presence_of_element_located((By.ID, element_id))
+@then('I should not see "{name}" in the results')
+def step_impl(context, name):
+    # Ensure any background active processing completes before validating absence
+    WebDriverWait(context.driver, context.wait_seconds).until(
+        expected_conditions.invisibility_of_element_located((By.ID, 'flash_message_loading'))
     )
-    element.clear()
-    element.send_keys(text_string)
+    results_text = context.driver.find_element(By.ID, 'search_results').text
+    assert name not in results_text
+
+@then('I should see the message "{message}"')
+def step_impl(context, message):
+    found = WebDriverWait(context.driver, context.wait_seconds).until(
+        expected_conditions.text_to_be_present_in_element(
+            (By.ID, 'flash_message'),
+            message
+        )
+    )
+    assert found

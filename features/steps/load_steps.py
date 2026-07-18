@@ -1,4 +1,3 @@
-cat > /home/project/tdd-bdd-final-project/features/steps/load_steps.py << 'EOF'
 ######################################################################
 # Copyright 2016, 2023 John J. Rofrano. All Rights Reserved.
 #
@@ -56,4 +55,3 @@ def step_impl(context):
         }
         context.resp = requests.post(rest_endpoint, json=payload)
         assert context.resp.status_code == HTTP_201_CREATED
-EOF
