@@ -1,6 +1,7 @@
 """
 CLI Command Extensions for Flask
 """
+# pylint: disable=duplicate-code
 import os
 from unittest import TestCase
 from unittest.mock import patch, MagicMock
